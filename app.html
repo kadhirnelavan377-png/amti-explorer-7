@@ -1,0 +1,190 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Maths AR:Explorer</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+
+<!-- 🧸 KIDS MODE -->
+<button id="kidsBtn">🧸 Kids Mode 🧸</button>
+
+<div class="app">
+  <div class="stage">
+    <video id="video" autoplay muted playsinline></video>
+    <canvas id="overlay" class="overlay"></canvas>
+  </div>
+
+  <div class="panel">
+    <h2>AR Fractions</h2>
+
+    <p><b>Object:</b> <span id="obj">—</span></p>
+    <p><b>Confidence:</b> <span id="conf">—</span></p>
+    <p><b>Fraction:</b> <span id="fraction">—</span></p>
+    <p><b>Simplified:</b> <span id="simple">—</span></p>
+    <p><b>Percentage:</b> <span id="percent">—</span></p>
+
+    <label>Grid Cells
+      <input id="gridCount" type="number" value="12" min="2" max="48">
+    </label>
+
+    <div id="grid" class="grid"></div>
+
+    <button class="btn" id="speakBtn">🔊 Speak Explanation</button>
+
+    <hr>
+
+    <!-- 🧠 QUIZ MODE -->
+    <h3>🧠 Quiz Mode</h3>
+    <p id="quizQ">Click Start Quiz</p>
+
+    <button class="btn quizOpt" onclick="checkAnswer(0)"></button>
+    <button class="btn quizOpt" onclick="checkAnswer(1)"></button>
+    <button class="btn quizOpt" onclick="checkAnswer(2)"></button>
+
+    <p><b>Quiz Score:</b> <span id="quizScore">0</span></p>
+    <button class="btn" onclick="generateQuiz()">▶ Start Quiz</button>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@3.21.0"></script>
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd@2.2.2"></script>
+
+<script>
+const video = document.getElementById("video");
+const canvas = document.getElementById("overlay");
+const ctx = canvas.getContext("2d");
+
+const obj = document.getElementById("obj");
+const conf = document.getElementById("conf");
+const fractionEl = document.getElementById("fraction");
+const simpleEl = document.getElementById("simple");
+const percentEl = document.getElementById("percent");
+const grid = document.getElementById("grid");
+const gridCountInput = document.getElementById("gridCount");
+
+let model;
+let smooth = 0;
+
+/* ===== EUCLID GCD ===== */
+function gcd(a,b){
+  while(b){ [a,b] = [b, a % b]; }
+  return a;
+}
+
+/* ===== CAMERA ===== */
+async function startCamera(){
+  const stream = await navigator.mediaDevices.getUserMedia({
+    video:{ facingMode:"environment" }
+  });
+  video.srcObject = stream;
+  await new Promise(r => video.onloadedmetadata = r);
+  video.play();
+
+  canvas.width = video.videoWidth;
+  canvas.height = video.videoHeight;
+  ctx.setTransform(-1,0,0,1,canvas.width,0);
+
+  model = await cocoSsd.load();
+  detect();
+}
+
+/* ===== GRID ===== */
+function drawGrid(total, filled){
+  grid.innerHTML="";
+  for(let i=0;i<total;i++){
+    const c=document.createElement("div");
+    c.className="cell"+(i<filled?" filled":"");
+    grid.appendChild(c);
+  }
+}
+
+/* ===== DETECTION ===== */
+async function detect(){
+  const preds = await model.detect(video);
+  if(preds.length){
+    const p = preds[0];
+    obj.innerText = p.class;
+    conf.innerText = (p.score*100).toFixed(1)+"%";
+
+    const area = p.bbox[2]*p.bbox[3];
+    const frame = canvas.width*canvas.height;
+    smooth = smooth*0.85 + (area/frame)*0.15;
+
+    const total = +gridCountInput.value;
+    const filled = Math.max(0, Math.min(total, Math.floor(smooth*total)));
+
+    fractionEl.innerText = filled+"/"+total;
+
+    const g = gcd(filled,total);
+    simpleEl.innerText = (filled/g)+"/"+(total/g);
+
+    percentEl.innerText = ((filled/total)*100).toFixed(1)+"%";
+
+    drawGrid(total,filled);
+  }
+  requestAnimationFrame(detect);
+}
+startCamera();
+
+/* ===== SPEAK ===== */
+document.getElementById("speakBtn").onclick = () => {
+  speechSynthesis.cancel();
+  speechSynthesis.speak(
+    new SpeechSynthesisUtterance(
+      `The fraction shown is ${fractionEl.innerText}.
+       Simplified using Euclid's algorithm it is ${simpleEl.innerText}.
+       This equals ${percentEl.innerText}.`
+    )
+  );
+};
+
+/* ===== QUIZ MODE (FIXED & PERFECT) ===== */
+let correctIndex = 0;
+let quizScore = 0;
+
+function generateQuiz(){
+  const correct = simpleEl.innerText; // 🔥 LIVE value from grid
+  const [n,d] = correct.split("/").map(Number);
+
+  const options = [
+    correct,
+    (n+1)+"/"+d,
+    n+"/"+(d+1)
+  ].sort(() => Math.random() - 0.5);
+
+  document.getElementById("quizQ").innerText =
+    "Which fraction matches the grid shown?";
+
+  document.querySelectorAll(".quizOpt").forEach((b,i)=>{
+    b.innerText = options[i];
+    if(options[i] === correct) correctIndex = i;
+  });
+}
+
+function checkAnswer(i){
+  if(i === correctIndex){
+    quizScore++;
+    alert("✅ Correct! This matches the grid.");
+  }else{
+    alert("❌ Incorrect. Observe the grid carefully.");
+  }
+  document.getElementById("quizScore").innerText = quizScore;
+  generateQuiz();
+}
+
+/* ===== KIDS MODE ===== */
+kidsBtn.onclick = () => {
+  document.body.classList.toggle("kids");
+  kidsBtn.innerText =
+    document.body.classList.contains("kids")
+    ? "🧸 Kids Mode ON"
+    : "🧸 Kids Mode 🧸";
+};
+</script>
+
+</body>
+</html>
